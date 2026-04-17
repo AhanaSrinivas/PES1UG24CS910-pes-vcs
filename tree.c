@@ -9,13 +9,26 @@
 // Example single entry (conceptual):
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
+// A tree represents a directory snapshot. Each tree contains entries
+// mapping names to either blobs (files) or subtrees (directories).
+//
+// Key responsibilities:
+// - Serialize tree entries into a deterministic format
+// - Parse tree objects from disk
+// - Construct tree from index (used during commit)
+//
+// This mimics Git’s tree object behavior in a simplified form
+
 #include "tree.h"
+#include "index.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
+// Forward declaration
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
 #define MODE_FILE      0100644
@@ -36,6 +49,14 @@ uint32_t get_file_mode(const char *path) {
 
 // Parse binary tree data into a Tree struct safely.
 // Returns 0 on success, -1 on parse error.
+// Parses raw tree data into a Tree structure.
+//
+// Reads sequential entries:
+// - mode
+// - name
+// - hash
+//
+// Reconstructs in-memory representation of tree.
 int tree_parse(const void *data, size_t len, Tree *tree_out) {
     tree_out->count = 0;
     const uint8_t *ptr = (const uint8_t *)data;
@@ -86,6 +107,16 @@ static int compare_tree_entries(const void *a, const void *b) {
 // Serialize a Tree struct into binary format for storage.
 // Caller must free(*data_out).
 // Returns 0 on success, -1 on error.
+// Serializes a Tree into raw binary format.
+//
+// Steps:
+// 1. Sort entries by name (ensures deterministic output)
+// 2. For each entry:
+//    - Write mode (as text)
+//    - Write name
+//    - Append raw hash bytes
+//
+// Output format matches Git-like tree structure.
 int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
     // Estimate max size: (6 bytes mode + 1 byte space + 256 bytes name + 1 byte null + 32 bytes hash) per entry
     size_t max_size = tree->count * 296; 
@@ -129,6 +160,16 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
+// Builds a tree object from the current index.
+//
+// Process:
+// - Load index entries (staged files)
+// - Convert each entry into a tree entry
+// - Extract filename from path (ignoring directories for simplicity)
+// - Serialize and store tree object
+//
+// This function represents the snapshot used in commits.
+// Extract filename from path (e.g., "src/main.c" → "main.c")
 int tree_from_index(ObjectID *id_out) {
     Index index;
     if (index_load(&index) != 0) return -1;
