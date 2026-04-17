@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 // Forward declarations (implemented in object.c)
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
@@ -233,19 +234,16 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     free(data);
 
     // 7. Update HEAD
-    // Ensure refs directory exists
+// Update HEAD
 mkdir(".pes/refs", 0755);
 mkdir(".pes/refs/heads", 0755);
 
-// Ensure branch file exists
 FILE *f = fopen(".pes/refs/heads/main", "a");
 if (f) fclose(f);
 
-// Update HEAD
 if (head_update(commit_id_out) != 0) {
     return -1;
 }
-    }
 
-    return 0;
+return 0;
 }
