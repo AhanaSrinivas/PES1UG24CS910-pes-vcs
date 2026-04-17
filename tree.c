@@ -130,8 +130,87 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //
 // Returns 0 on success, -1 on error.
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+    Index index;
+    if (index_load(&index) != 0) return -1;
+
+    Tree tree;
+    tree.count = 0;
+
+    for (int i = 0; i < index.count; i++) {
+        IndexEntry *entry = &index.entries[i];
+
+        // Check if path has '/'
+        char *slash = strchr(entry->path, '/');
+
+        if (!slash) {
+            // FILE at root
+            TreeEntry *te = &tree.entries[tree.count++];
+
+            te->mode = entry->mode;
+            te->hash = entry->hash;
+            strcpy(te->name, entry->path);
+        } else {
+            // SUBDIRECTORY
+            char dirname[256];
+            int len = slash - entry->path;
+            strncpy(dirname, entry->path, len);
+            dirname[len] = '\0';
+
+            // Check if already added
+            int found = 0;
+            for (int j = 0; j < tree.count; j++) {
+                if (strcmp(tree.entries[j].name, dirname) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (!found) {
+                TreeEntry *te = &tree.entries[tree.count++];
+                te->mode = 0040000; // directory
+                strcpy(te->name, dirname);
+
+                // Build subtree manually
+                Tree subtree;
+                subtree.count = 0;
+
+                for (int k = 0; k < index.count; k++) {
+                    IndexEntry *sub = &index.entries[k];
+
+                    if (strncmp(sub->path, dirname, len) == 0 && sub->path[len] == '/') {
+                        char *subname = sub->path + len + 1;
+
+                        // ONLY take direct children (no deeper nesting for now)
+                        if (strchr(subname, '/') == NULL) {
+                            TreeEntry *sub_te = &subtree.entries[subtree.count++];
+                            sub_te->mode = sub->mode;
+                            sub_te->hash = sub->hash;
+                            strcpy(sub_te->name, subname);
+                        }
+                    }
+                }
+
+                // Serialize subtree
+                void *data;
+                size_t len_data;
+                if (tree_serialize(&subtree, &data, &len_data) != 0) return -1;
+
+                // Write subtree object
+                if (object_write(OBJ_TREE, data, len_data, &te->hash) != 0) return -1;
+
+                free(data);
+            }
+        }
+    }
+
+    // Serialize root tree
+    void *data;
+    size_t len_data;
+    if (tree_serialize(&tree, &data, &len_data) != 0) return -1;
+
+    // Write root tree
+    if (object_write(OBJ_TREE, data, len_data, id_out) != 0) return -1;
+
+    free(data);
+    return 0;
 }
