@@ -102,7 +102,18 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 	else if (type == OBJ_TREE) type_str = "tree";
 	else type_str = "commit";
 
-int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
+        int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
+	size_t total_len = header_len + len;
+
+	char *full_data = malloc(total_len);
+	if (!full_data) return -1;
+
+	// Copy header + data
+	memcpy(full_data, header, header_len);
+	memcpy(full_data + header_len, data, len);
+
+	// Compute hash
+	compute_hash(full_data, total_len, id_out);
 }
 
 // Read an object from the store.
